@@ -1,10 +1,8 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { User, GameState, LetterStatus, TileState } from '../types';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { User, GameState } from '../types';
 import { getTargetWord, getWeekNumber } from '../utils/gameUtils';
 import Grid from './Grid';
-import Keyboard from './Keyboard';
-import MagicalHint from './MagicalHint';
 import { HOUSE_THEMES } from '../constants';
 
 interface Props {
@@ -22,56 +20,62 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
   });
   const [shakeRow, setShakeRow] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const theme = HOUSE_THEMES[user.house];
 
-  const onKeyPress = useCallback((key: string) => {
+  const submitGuess = useCallback(() => {
     if (gameState.isGameOver) return;
-
-    if (key === 'ENTER') {
-      if (gameState.currentGuess.length !== 5) {
-        setShakeRow(gameState.guesses.length);
-        setTimeout(() => setShakeRow(null), 500);
-        return;
-      }
-      
-      const newGuess = gameState.currentGuess.toUpperCase();
-      const newGuesses = [...gameState.guesses, newGuess];
-      const isWinner = newGuess === targetWord;
-      const isGameOver = isWinner || newGuesses.length === 6;
-
-      setGameState(prev => ({
-        ...prev,
-        guesses: newGuesses,
-        currentGuess: '',
-        isGameOver,
-        isWinner
-      }));
-    } else if (key === 'BACKSPACE' || key === 'DELETE') {
-      setGameState(prev => ({
-        ...prev,
-        currentGuess: prev.currentGuess.slice(0, -1)
-      }));
-    } else if (gameState.currentGuess.length < 5 && /^[A-Z]$/.test(key)) {
-      setGameState(prev => ({
-        ...prev,
-        currentGuess: prev.currentGuess + key
-      }));
+    
+    if (gameState.currentGuess.length !== 5) {
+      setShakeRow(gameState.guesses.length);
+      setTimeout(() => setShakeRow(null), 500);
+      return;
     }
+    
+    const newGuess = gameState.currentGuess.toUpperCase();
+    const newGuesses = [...gameState.guesses, newGuess];
+    const isWinner = newGuess === targetWord;
+    const isGameOver = isWinner || newGuesses.length === 6;
+
+    setGameState(prev => ({
+      ...prev,
+      guesses: newGuesses,
+      currentGuess: '',
+      isGameOver,
+      isWinner
+    }));
   }, [gameState, targetWord]);
 
+  // Handle focusing the hidden input to bring up the system keyboard
+  const focusInput = () => {
+    if (!gameState.isGameOver) {
+      inputRef.current?.focus();
+    }
+  };
+
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const key = e.key.toUpperCase();
-      if (key === 'ENTER' || key === 'BACKSPACE') {
-        onKeyPress(key);
-      } else if (/^[A-Z]$/.test(key)) {
-        onKeyPress(key);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onKeyPress]);
+    focusInput();
+    // Re-focus if user clicks away
+    const handleGlobalClick = () => focusInput();
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
+  }, [gameState.isGameOver]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (gameState.isGameOver) return;
+    const val = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
+    setGameState(prev => ({
+      ...prev,
+      currentGuess: val.slice(0, 5)
+    }));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      submitGuess();
+    }
+  };
 
   const handleCopyResults = () => {
     const week = getWeekNumber(new Date());
@@ -95,7 +99,21 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
   };
 
   return (
-    <div className="h-screen w-full flex flex-col bg-[#0a0a0c] overflow-hidden select-none">
+    <div className="h-screen w-full flex flex-col bg-[#0a0a0c] overflow-hidden select-none" onClick={focusInput}>
+      {/* Hidden input to trigger system keyboard */}
+      <input
+        ref={inputRef}
+        type="text"
+        value={gameState.currentGuess}
+        onChange={handleInputChange}
+        onKeyDown={handleKeyDown}
+        className="absolute opacity-0 pointer-events-none"
+        autoFocus
+        autoComplete="off"
+        autoCapitalize="characters"
+        spellCheck="false"
+      />
+
       {/* Header */}
       <header className={`px-4 py-3 border-b border-white/5 flex items-center justify-between sticky top-0 z-50 glass-panel`}>
         <button onClick={onReset} className="text-white/40 hover:text-white transition-colors">
@@ -111,19 +129,20 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
       </header>
 
       {/* Game Content */}
-      <main className="flex-grow flex flex-col items-center justify-center px-4 py-6 overflow-y-auto">
+      <main className="flex-grow flex flex-col items-center justify-start pt-10 px-4 overflow-y-auto">
         <Grid 
           guesses={gameState.guesses} 
           currentGuess={gameState.currentGuess} 
           targetWord={targetWord}
           shakeRow={shakeRow}
+          isGameOver={gameState.isGameOver}
         />
         
-        {/* Magical Hint via Gemini Integration */}
+        {/* Helper text for typing */}
         {!gameState.isGameOver && (
-          <div className="mt-8 w-full max-w-[300px]">
-            <MagicalHint targetWord={targetWord} house={user.house} />
-          </div>
+          <p className="text-[10px] text-center text-white/20 mt-8 uppercase tracking-widest">
+            Nutze deine Tastatur zum Tippen
+          </p>
         )}
 
         {/* Game Over Modal / Message */}
@@ -165,15 +184,6 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
           </div>
         )}
       </main>
-
-      {/* Keyboard */}
-      <footer className="pb-8 px-2 flex-shrink-0">
-        <Keyboard 
-          onKeyPress={onKeyPress} 
-          guesses={gameState.guesses} 
-          targetWord={targetWord} 
-        />
-      </footer>
     </div>
   );
 };

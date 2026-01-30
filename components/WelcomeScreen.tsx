@@ -20,13 +20,21 @@ const WelcomeScreen: React.FC<Props> = ({ onStart }) => {
     }
   };
 
+  // Helper to get hex to rgba for the glow effect
+  const hexToRgba = (hex: string, alpha: number) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
   return (
     <div className="w-full max-w-md px-6 flex flex-col items-center space-y-8 animate-fade-in">
       <div className="text-center space-y-2">
         <h1 className="text-5xl font-magic tracking-widest text-transparent bg-clip-text bg-gradient-to-b from-amber-200 to-amber-500">
           HAUSPOKAL WORDLE
         </h1>
-        <p className="text-slate-400 font-light italic">Spiele hier das Wordle-Game des DA-Hauspokals, inspiriert von der New York Times</p>
+        <p className="text-slate-400 font-light italic text-sm">Spiele hier das Wordle-Game des DA-Hauspokals, inspiriert von der New York Times</p>
       </div>
 
       <form onSubmit={handleSubmit} className="w-full space-y-8">
@@ -45,29 +53,38 @@ const WelcomeScreen: React.FC<Props> = ({ onStart }) => {
         <div className="space-y-4">
           <label className="text-sm font-semibold tracking-widest text-amber-200/60 uppercase ml-1">Hogwarts-Haus</label>
           <div className="grid grid-cols-2 gap-3">
-            {houses.map((house) => (
-              <button
-                key={house}
-                type="button"
-                onClick={() => setSelectedHouse(house)}
-                className={`
-                  relative overflow-hidden group py-4 rounded-xl border-2 transition-all duration-300
-                  ${selectedHouse === house 
-                    ? `border-amber-400 scale-105 shadow-[0_0_20px_rgba(251,191,36,0.3)]` 
-                    : 'border-white/5 opacity-60 hover:opacity-100 hover:border-white/20'}
-                `}
-                style={{
-                  background: `linear-gradient(135deg, ${HOUSE_THEMES[house].primary}aa, ${HOUSE_THEMES[house].secondary}88)`
-                }}
-              >
-                <span className="relative z-10 font-magic text-sm tracking-wider drop-shadow-md">
-                  {house}
-                </span>
-                {selectedHouse === house && (
-                   <div className="absolute inset-0 bg-white/10 animate-pulse" />
-                )}
-              </button>
-            ))}
+            {houses.map((house) => {
+              const theme = HOUSE_THEMES[house];
+              const isSelected = selectedHouse === house;
+              const borderColor = isSelected ? theme.accent : 'transparent';
+              const shadowColor = isSelected ? hexToRgba(theme.accent, 0.4) : 'transparent';
+
+              return (
+                <button
+                  key={house}
+                  type="button"
+                  onClick={() => setSelectedHouse(house)}
+                  className={`
+                    relative overflow-hidden group py-4 rounded-xl border-2 transition-all duration-300
+                    ${isSelected 
+                      ? `scale-105` 
+                      : 'border-white/5 opacity-60 hover:opacity-100 hover:border-white/20'}
+                  `}
+                  style={{
+                    background: `linear-gradient(135deg, ${theme.primary}aa, ${theme.secondary}88)`,
+                    borderColor: isSelected ? theme.accent : undefined,
+                    boxShadow: isSelected ? `0 0 20px ${shadowColor}` : undefined
+                  }}
+                >
+                  <span className="relative z-10 font-magic text-sm tracking-wider drop-shadow-md">
+                    {house}
+                  </span>
+                  {isSelected && (
+                     <div className="absolute inset-0 bg-white/10 animate-pulse" />
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 

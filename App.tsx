@@ -6,13 +6,18 @@ import { User } from './types';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // Persistence (optional, let's keep it simple as requested)
   useEffect(() => {
     const saved = localStorage.getItem('wizard_user');
     if (saved) {
-      setUser(JSON.parse(saved));
+      try {
+        setUser(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to parse saved user", e);
+      }
     }
+    setIsLoaded(true);
   }, []);
 
   const handleStart = (userData: User) => {
@@ -23,7 +28,16 @@ const App: React.FC = () => {
   const handleReset = () => {
     setUser(null);
     localStorage.removeItem('wizard_user');
+    // Also clear game state when user resets profile
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+      if (key.startsWith('wordle_state_')) {
+        localStorage.removeItem(key);
+      }
+    });
   };
+
+  if (!isLoaded) return <div className="min-h-screen bg-[#0a0a0c]" />;
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#0a0a0c] text-slate-200">

@@ -1,5 +1,5 @@
 
-import { WEEKLY_WORDS } from '../constants';
+import { WEEKLY_WORDS, ALLOWED_WORDS } from '../constants';
 
 /**
  * Gets the current ISO week number (1-52/53)
@@ -13,14 +13,15 @@ export const getWeekNumber = (d: Date): number => {
 };
 
 export const getTargetWord = (): string => {
-  const week = getWeekNumber(new Date());
-  // Use modulo to wrap around if word list is shorter than 52
-  return WEEKLY_WORDS[(week - 1) % WEEKLY_WORDS.length].toUpperCase();
+  // Wunschgemäß bleibt "HARRY" vorerst die aktuelle Lösung
+  // Später kann hier wieder die wochenbasierte Auswahl aktiviert werden:
+  // const week = getWeekNumber(new Date());
+  // return WEEKLY_WORDS[(week - 1) % WEEKLY_WORDS.length].toUpperCase();
+  return "HARRY";
 };
 
 export const isValidWord = (word: string): boolean => {
-  // In a real app, check against a large dictionary. 
-  // For this custom version, we allow any 5 letters for easier placeholder use,
-  // or restrict to a small list if provided.
-  return word.length === 5;
+  if (word.length !== 5) return false;
+  // Check against the official allowlist
+  return ALLOWED_WORDS.includes(word.toUpperCase());
 };

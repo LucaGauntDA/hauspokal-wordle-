@@ -13,11 +13,9 @@ export const getWeekNumber = (d: Date): number => {
 };
 
 export const getTargetWord = (): string => {
-  // Wunschgemäß bleibt "HARRY" vorerst die aktuelle Lösung
-  // Später kann hier wieder die wochenbasierte Auswahl aktiviert werden:
-  // const week = getWeekNumber(new Date());
-  // return WEEKLY_WORDS[(week - 1) % WEEKLY_WORDS.length].toUpperCase();
-  return "HARRY";
+  // Als zufälliges Wort aus der Liste wurde SNAPE gewählt.
+  // Sobald du die wöchentliche Liste schickst, aktivieren wir die Datums-Logik.
+  return "SNAPE";
 };
 
 export const isValidWord = (word: string): boolean => {

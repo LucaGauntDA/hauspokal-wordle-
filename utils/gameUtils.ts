@@ -5,21 +5,25 @@ import { WEEKLY_WORDS, ALLOWED_WORDS } from '../constants';
  * Gets the current ISO week number (1-52/53)
  */
 export const getWeekNumber = (d: Date): number => {
-  d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return weekNo;
+  const date = new Date(d.getTime());
+  date.setHours(0, 0, 0, 0);
+  // Thursday in current week decides the year.
+  date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+  // January 4 is always in week 1.
+  const week1 = new Date(date.getFullYear(), 0, 4);
+  // Adjust to Thursday in week 1 and count number of weeks from date to week1.
+  return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000
+                        - 3 + (week1.getDay() + 6) % 7) / 7);
 };
 
 export const getTargetWord = (): string => {
-  // Als zufälliges Wort aus der Liste wurde SNAPE gewählt.
-  // Sobald du die wöchentliche Liste schickst, aktivieren wir die Datums-Logik.
+  // Der Nutzer möchte, dass das Wort dauerhaft "SNAPE" bleibt.
   return "SNAPE";
 };
 
 export const isValidWord = (word: string): boolean => {
   if (word.length !== 5) return false;
-  // Check against the official allowlist
-  return ALLOWED_WORDS.includes(word.toUpperCase());
+  const upper = word.toUpperCase();
+  // Check against the official allowlist AND the weekly list
+  return ALLOWED_WORDS.includes(upper) || WEEKLY_WORDS.includes(upper);
 };

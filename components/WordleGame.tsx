@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User, GameState } from '../types';
+import { User, GameState, LetterStatus } from '../types';
 import { getTargetWord, getWeekNumber, isValidWord } from '../utils/gameUtils';
 import Grid from './Grid';
 import { HOUSE_THEMES, RESULT_SUBMISSION_URL } from '../constants';
@@ -21,31 +21,31 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
   const [shakeRow, setShakeRow] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  
   const inputRef = useRef<HTMLInputElement>(null);
-
   const theme = HOUSE_THEMES[user.house];
   const storageKey = `wordle_state_${user.name.replace(/\s+/g, '_')}_${user.house}`;
 
-  // Load game state on mount
+  // Load game state
   useEffect(() => {
     const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Only restore if it's the same word
         if (parsed.targetWord === targetWord) {
           setGameState(parsed.state);
         } else {
-          // New word detected! Clear old game state for this user
           localStorage.removeItem(storageKey);
         }
       } catch (e) {
         console.error("Failed to load game state", e);
       }
     }
+    // Auto-focus on start
+    inputRef.current?.focus();
   }, [targetWord, storageKey]);
 
-  // Save game state whenever it changes
+  // Save game state
   useEffect(() => {
     if (gameState.guesses.length > 0 || gameState.isGameOver) {
       const dataToSave = {
@@ -57,14 +57,37 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
     }
   }, [gameState, targetWord, storageKey]);
 
-  const submitGuess = useCallback(() => {
+  const onChar = useCallback((char: string) => {
+    if (gameState.isGameOver) return;
+    setGameState(prev => ({
+      ...prev,
+      currentGuess: prev.currentGuess.length < 5 ? prev.currentGuess + char : prev.currentGuess
+    }));
+  }, [gameState.isGameOver]);
+
+  const onDelete = useCallback(() => {
+    if (gameState.isGameOver) return;
+    setGameState(prev => ({
+      ...prev,
+      currentGuess: prev.currentGuess.slice(0, -1)
+    }));
+  }, [gameState.isGameOver]);
+
+  const onEnter = useCallback(() => {
     if (gameState.isGameOver) return;
     
     const guess = gameState.currentGuess.toUpperCase();
     
-    if (guess.length !== 5 || !isValidWord(guess)) {
+    if (guess.length !== 5) {
       setShakeRow(gameState.guesses.length);
       setTimeout(() => setShakeRow(null), 500);
+      return;
+    }
+
+    if (!isValidWord(guess)) {
+      setShakeRow(gameState.guesses.length);
+      setTimeout(() => setShakeRow(null), 500);
+      alert("Dieses Wort kenne ich nicht!");
       return;
     }
     
@@ -81,23 +104,50 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
     }));
   }, [gameState, targetWord]);
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value.toUpperCase();
+    // Only allow letters
+    if (/^[A-Z]*$/.test(val)) {
+      // Logic handled via keydown for better control over Enter/Backspace
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (gameState.isGameOver) return;
+    
+    if (e.key === 'Enter') {
+      onEnter();
+    } else if (e.key === 'Backspace') {
+      onDelete();
+    } else if (/^[a-zA-Z]$/.test(e.key)) {
+      onChar(e.key.toUpperCase());
+    }
+    // Clear input to keep it ready for next char
+    e.currentTarget.value = '';
+  };
+
+  // Keep focus on hidden input
+  const handleContainerClick = () => {
+    if (!gameState.isGameOver) {
+      inputRef.current?.focus();
+    }
+  };
+
+  // Automated result submission
   useEffect(() => {
-    if (gameState.isGameOver && RESULT_SUBMISSION_URL) {
-      // Small delay to ensure state is committed before potentially sending
-      const timer = setTimeout(() => {
-        sendResults();
-      }, 500);
+    if (gameState.isGameOver && RESULT_SUBMISSION_URL && !RESULT_SUBMISSION_URL.includes('WEBHOOK_URL_HIER') && submissionStatus === 'idle') {
+      const timer = setTimeout(() => sendResults(), 1500);
       return () => clearTimeout(timer);
     }
   }, [gameState.isGameOver]);
 
   const sendResults = async () => {
-    // Prevent double submission if already successful
-    if (submissionStatus === 'success') return;
+    if (submissionStatus === 'success' || submissionStatus === 'sending') return;
+    if (!RESULT_SUBMISSION_URL || RESULT_SUBMISSION_URL.includes('WEBHOOK_URL_HIER')) return;
 
     setSubmissionStatus('sending');
-    const week = getWeekNumber(new Date());
     
+    const week = getWeekNumber(new Date());
     const emojiGrid = gameState.guesses.map(guess => {
       return guess.split('').map((letter, i) => {
         if (letter === targetWord[i]) return '🟩';
@@ -106,17 +156,35 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
       }).join('');
     }).join('\n');
 
-    const payload = {
-      name: user.name,
-      house: user.house,
-      week: week,
-      word: targetWord,
-      attempts: gameState.guesses.length,
-      status: gameState.isWinner ? 'Sieg' : 'Niederlage',
-      guesses: gameState.guesses.join(', '),
-      grid: emojiGrid,
-      timestamp: new Date().toISOString()
-    };
+    let payload: any;
+
+    if (RESULT_SUBMISSION_URL.includes('discord.com/api/webhooks')) {
+      const hexColor = parseInt(theme.primary.replace('#', ''), 16);
+      payload = {
+        embeds: [{
+          title: `Hauspokal Wordle KW ${week}`,
+          description: `**${user.name}** (${user.house}) hat das Wordle beendet!\n\n${emojiGrid}`,
+          color: hexColor,
+          fields: [
+            { name: "Versuche", value: `${gameState.isWinner ? gameState.guesses.length : 'X'}/6`, inline: true },
+            { name: "Status", value: gameState.isWinner ? "Gewonnen 🏆" : "Verloren 💀", inline: true },
+            { name: "Wort", value: `||${targetWord}||`, inline: true }
+          ],
+          timestamp: new Date().toISOString()
+        }]
+      };
+    } else {
+      payload = {
+        name: user.name,
+        house: user.house,
+        week: week,
+        target_word: targetWord,
+        attempts: gameState.guesses.length,
+        status: gameState.isWinner ? 'Sieg' : 'Niederlage',
+        grid_emoji: emojiGrid,
+        timestamp: new Date().toISOString()
+      };
+    }
 
     try {
       const response = await fetch(RESULT_SUBMISSION_URL, {
@@ -130,36 +198,8 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
         setSubmissionStatus('error');
       }
     } catch (e) {
-      console.error("Submission failed", e);
+      console.error("Submission error:", e);
       setSubmissionStatus('error');
-    }
-  };
-
-  const focusInput = () => {
-    if (!gameState.isGameOver) {
-      inputRef.current?.focus();
-    }
-  };
-
-  useEffect(() => {
-    focusInput();
-    const handleGlobalClick = () => focusInput();
-    window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
-  }, [gameState.isGameOver]);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (gameState.isGameOver) return;
-    const val = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
-    setGameState(prev => ({
-      ...prev,
-      currentGuess: val.slice(0, 5)
-    }));
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      submitGuess();
     }
   };
 
@@ -177,7 +217,6 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
     }).join('\n');
 
     shareText += emojiGrid;
-
     navigator.clipboard.writeText(shareText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -185,22 +224,26 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
   };
 
   return (
-    <div className="h-screen w-full flex flex-col bg-[#0a0a0c] overflow-hidden select-none" onClick={focusInput}>
+    <div 
+      className="h-screen w-full flex flex-col bg-[#0a0a0c] overflow-hidden select-none"
+      onClick={handleContainerClick}
+    >
+      {/* Hidden input to trigger native keyboard */}
       <input
         ref={inputRef}
         type="text"
-        value={gameState.currentGuess}
+        className="absolute opacity-0 pointer-events-none"
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
-        className="absolute opacity-0 pointer-events-none"
-        autoFocus
-        autoComplete="off"
         autoCapitalize="characters"
+        autoComplete="off"
+        autoCorrect="off"
         spellCheck="false"
+        inputMode="text"
       />
 
       <header className={`px-4 py-3 border-b border-white/5 flex items-center justify-between sticky top-0 z-50 glass-panel`}>
-        <button onClick={onReset} title="Profil wechseln" className="text-white/40 hover:text-white transition-colors">
+        <button onClick={onReset} className="text-white/40 hover:text-white transition-colors p-1">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z" /></svg>
         </button>
         <div className="text-center">
@@ -209,45 +252,47 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
             {user.house} House
           </p>
         </div>
-        <div className="w-6" />
+        <div className="w-8" />
       </header>
 
-      <main className="flex-grow flex flex-col items-center justify-start pt-10 px-4 overflow-y-auto">
-        <Grid 
-          guesses={gameState.guesses} 
-          currentGuess={gameState.currentGuess} 
-          targetWord={targetWord}
-          shakeRow={shakeRow}
-          isGameOver={gameState.isGameOver}
-        />
-        
-        {!gameState.isGameOver && (
-          <p className="text-[10px] text-center text-white/20 mt-8 uppercase tracking-widest">
-            Nutze deine Tastatur zum Tippen
+      <main className="flex-grow flex flex-col items-center justify-center">
+        <div className="flex-grow flex items-center justify-center w-full px-4 mb-20">
+          <Grid 
+            guesses={gameState.guesses} 
+            currentGuess={gameState.currentGuess} 
+            targetWord={targetWord}
+            shakeRow={shakeRow}
+            isGameOver={gameState.isGameOver}
+          />
+        </div>
+
+        <div className="pb-8 text-center animate-pulse">
+          <p className="text-white/20 text-xs tracking-widest uppercase">
+            {gameState.isGameOver ? 'SPIEL BEENDET' : 'Tippe zum Schreiben...'}
           </p>
-        )}
+        </div>
 
         {gameState.isGameOver && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6 animate-fade-in">
-            <div className="glass-panel w-full max-w-sm rounded-2xl p-8 border-2 border-amber-500/30 text-center space-y-6">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-6 animate-fade-in">
+            <div className="glass-panel w-full max-w-sm rounded-2xl p-8 border-2 border-amber-500/30 text-center space-y-6 shadow-2xl">
               <h2 className="text-4xl font-magic text-amber-400">
                 {gameState.isWinner ? 'SEHR GUT!' : 'LEIDER...'}
               </h2>
               <p className="text-slate-300">
                 {gameState.isWinner 
                   ? `Herzlichen Glückwunsch, ${user.name}` 
-                  : `Deine Versuche sind leider aufgebraucht`}
+                  : `Vielleicht klappt es beim nächsten Mal.`}
               </p>
               
               <div className="space-y-1">
-                <span className="text-xs text-white/40 uppercase tracking-widest">Das Wort</span>
+                <span className="text-xs text-white/40 uppercase tracking-widest">Das Lösungswort</span>
                 <div className="text-3xl font-magic text-white tracking-widest bg-white/5 py-3 rounded-lg border border-white/10">
                   {targetWord}
                 </div>
               </div>
 
               {RESULT_SUBMISSION_URL && (
-                <div className="text-[10px] uppercase tracking-widest">
+                <div className="text-[10px] uppercase tracking-widest h-4">
                   {submissionStatus === 'sending' && <span className="text-amber-200/50">Wird geloggt...</span>}
                   {submissionStatus === 'success' && <span className="text-green-500">Ergebnis übermittelt ✓</span>}
                   {submissionStatus === 'error' && (
@@ -261,20 +306,17 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
               <div className="pt-4 space-y-3">
                 <button 
                   onClick={handleCopyResults}
-                  className="w-full py-4 rounded-xl bg-white/5 text-amber-200 border border-white/10 font-bold tracking-widest flex items-center justify-center space-x-2 active:scale-95 transition-all"
+                  className="w-full py-4 rounded-xl bg-white/10 text-amber-200 border border-white/10 font-bold tracking-widest flex items-center justify-center space-x-2 active:scale-95 transition-all"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
-                  <span>{copied ? 'KOPIERT!' : 'ERGEBNIS TEILEN'}</span>
+                  <span>{copied ? 'KOPIERT!' : 'TEILEN'}</span>
                 </button>
 
                 <button 
-                  onClick={() => {
-                    // Simple refresh of the screen logic, keeping the user
-                    window.location.reload();
-                  }}
-                  className="w-full py-4 rounded-xl bg-amber-500 text-black font-bold tracking-widest shadow-lg shadow-amber-500/20 active:scale-95 transition-all"
+                  onClick={() => window.location.reload()}
+                  className="w-full py-4 rounded-xl bg-amber-500 text-black font-bold tracking-widest active:scale-95 transition-all"
                 >
-                  BEENDEN
+                  OK
                 </button>
               </div>
             </div>

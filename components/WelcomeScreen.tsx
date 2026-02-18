@@ -101,10 +101,6 @@ const WelcomeScreen: React.FC<Props> = ({ onStart }) => {
           SPIELEN
         </button>
       </form>
-
-      <p className="text-xs text-slate-600 font-light mt-4">
-        Jede Woche kannst du ein neues Hauspokal-Wordle spielen.
-      </p>
     </div>
   );
 };

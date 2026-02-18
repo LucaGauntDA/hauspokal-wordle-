@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, GameState, LetterStatus } from '../types';
 import { getTargetWord, getWeekNumber, isValidWord } from '../utils/gameUtils';
@@ -22,8 +21,11 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
   const [shakeRow, setShakeRow] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  const [showEnterHint, setShowEnterHint] = useState(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
+  const enterHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const theme = HOUSE_THEMES[user.house];
   const storageKey = `wordle_state_${user.name.replace(/\s+/g, '_')}_${user.house}`;
 
@@ -47,7 +49,9 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
       }
     }
     // Auto-focus on start
-    inputRef.current?.focus();
+    setTimeout(() => {
+        inputRef.current?.focus();
+    }, 100);
   }, [targetWord, storageKey]);
 
   // Save game state
@@ -61,6 +65,32 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
       localStorage.setItem(storageKey, JSON.stringify(dataToSave));
     }
   }, [gameState, targetWord, storageKey]);
+
+  // Enter Hint Timer Logic
+  useEffect(() => {
+    // Clear existing timer
+    if (enterHintTimerRef.current) {
+      clearTimeout(enterHintTimerRef.current);
+      enterHintTimerRef.current = null;
+    }
+
+    // If game is not over and we have exactly 5 letters
+    if (!gameState.isGameOver && gameState.currentGuess.length === 5) {
+      // Set timer for 60 seconds
+      enterHintTimerRef.current = setTimeout(() => {
+        setShowEnterHint(true);
+      }, 60000);
+    } else {
+      // Otherwise hide hint immediately
+      setShowEnterHint(false);
+    }
+
+    return () => {
+      if (enterHintTimerRef.current) {
+        clearTimeout(enterHintTimerRef.current);
+      }
+    };
+  }, [gameState.currentGuess, gameState.isGameOver]);
 
   const onChar = useCallback((char: string) => {
     if (gameState.isGameOver) return;
@@ -79,6 +109,7 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
   }, [gameState.isGameOver]);
 
   const onEnter = useCallback(() => {
+    setShowEnterHint(false); // Hide hint on attempt
     if (gameState.isGameOver) return;
     
     const guess = gameState.currentGuess.toUpperCase();
@@ -109,26 +140,34 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
     }));
   }, [gameState, targetWord]);
 
+  // Handle character input via onChange to support Android/IME which often doesn't fire proper keydown events for characters
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.toUpperCase();
-    // Only allow letters
-    if (/^[A-Z]*$/.test(val)) {
-      // Logic handled via keydown for better control over Enter/Backspace
+    const val = e.target.value;
+    
+    if (val.length > 0) {
+      // Get the last character typed
+      const lastChar = val.slice(-1).toUpperCase();
+      
+      // Only accept letters
+      if (/^[A-Z]$/.test(lastChar)) {
+        onChar(lastChar);
+      }
     }
+    
+    // Clear input immediately to keep it ready for next char
+    e.target.value = '';
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (gameState.isGameOver) return;
     
     if (e.key === 'Enter') {
+      e.preventDefault();
       onEnter();
     } else if (e.key === 'Backspace') {
       onDelete();
-    } else if (/^[a-zA-Z]$/.test(e.key)) {
-      onChar(e.key.toUpperCase());
-    }
-    // Clear input to keep it ready for next char
-    e.currentTarget.value = '';
+    } 
+    // Character input is handled in handleInputChange
   };
 
   // Keep focus on hidden input
@@ -242,25 +281,31 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
       className="h-screen w-full flex flex-col bg-[#0a0a0c] overflow-hidden select-none"
       onClick={handleContainerClick}
     >
-      {/* Hidden input to trigger native keyboard */}
+      {/* Hidden input to trigger native keyboard. 
+          Moved off-screen but kept 'visible' to browser logic to ensure events fire. 
+          FontSize 16px prevents iOS zoom. 
+      */}
       <input
         ref={inputRef}
         type="text"
-        className="absolute opacity-0 pointer-events-none"
+        className="absolute top-0 left-0 opacity-0 w-full h-full cursor-default"
+        style={{ fontSize: '16px', zIndex: 10 }} 
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
+        autoFocus
         autoCapitalize="characters"
         autoComplete="off"
         autoCorrect="off"
         spellCheck="false"
         inputMode="text"
+        aria-label="Wordle Eingabe"
       />
 
       <header className={`px-4 py-3 border-b border-white/5 flex items-center justify-between sticky top-0 z-50 glass-panel`}>
-        <button onClick={onReset} className="text-white/40 hover:text-white transition-colors p-1">
+        <button onClick={onReset} className="text-white/40 hover:text-white transition-colors p-1 relative z-20">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z" /></svg>
         </button>
-        <div className="text-center">
+        <div className="text-center relative z-20 pointer-events-none">
           <h1 className="font-magic text-xl tracking-widest text-amber-200">HAUSPOKAL-WORDLE</h1>
           <p className="text-[10px] uppercase tracking-[0.2em] font-bold" style={{ color: theme.accent }}>
             {user.house} House
@@ -269,8 +314,22 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
         <div className="w-8" />
       </header>
 
-      <main className="flex-grow flex flex-col items-center justify-center">
-        <div className="flex-grow flex items-center justify-center w-full px-4 mb-20">
+      <main className="flex-grow flex flex-col items-center justify-center relative">
+        {/* Enter Hint Banner */}
+        {showEnterHint && (
+          <div 
+            className="absolute top-4 z-40 bg-amber-500 text-black px-6 py-2 rounded-full font-bold shadow-[0_0_20px_rgba(245,158,11,0.5)] animate-bounce cursor-pointer flex items-center gap-2 pointer-events-auto"
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent focusing input if checking container click
+              setShowEnterHint(false);
+            }}
+          >
+            <span className="text-sm tracking-wider">Drücke ENTER ↵</span>
+            <span className="opacity-50 text-xl leading-none hover:opacity-100">×</span>
+          </div>
+        )}
+
+        <div className="flex-grow flex items-center justify-center w-full px-4 mb-20 pointer-events-none">
           <Grid 
             guesses={gameState.guesses} 
             currentGuess={gameState.currentGuess} 
@@ -280,7 +339,7 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
           />
         </div>
 
-        <div className="pb-8 text-center animate-pulse">
+        <div className="pb-8 text-center animate-pulse pointer-events-none">
           <p className="text-white/20 text-xs tracking-widest uppercase">
             {gameState.isGameOver ? 'SPIEL BEENDET' : 'Tippe zum Schreiben...'}
           </p>
@@ -310,17 +369,17 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
                   {submissionStatus === 'sending' && <span className="text-amber-200/50">Wird geloggt...</span>}
                   {submissionStatus === 'success' && <span className="text-green-500">Ergebnis übermittelt ✓</span>}
                   {submissionStatus === 'error' && (
-                    <button onClick={sendResults} className="text-red-400 underline decoration-red-400/30">
+                    <button onClick={sendResults} className="text-red-400 underline decoration-red-400/30 relative z-[101]">
                       Fehler beim Loggen - Erneut versuchen?
                     </button>
                   )}
                 </div>
               )}
 
-              <div className="pt-4 space-y-3">
+              <div className="pt-4 space-y-3 relative z-[101]">
                 <button 
                   onClick={handleCopyResults}
-                  className="w-full py-4 rounded-xl bg-white/10 text-amber-200 border border-white/10 font-bold tracking-widest flex items-center justify-center space-x-2 active:scale-95 transition-all"
+                  className="w-full py-4 rounded-xl bg-white/10 text-amber-200 border border-white/10 font-bold tracking-widest flex items-center justify-center space-x-2 active:scale-95 transition-all cursor-pointer"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
                   <span>{copied ? 'KOPIERT!' : 'TEILEN'}</span>

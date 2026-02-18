@@ -17,6 +17,7 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
     currentGuess: '',
     isGameOver: false,
     isWinner: false,
+    hasSubmitted: false,
   });
   const [shakeRow, setShakeRow] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
@@ -34,6 +35,10 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
         const parsed = JSON.parse(saved);
         if (parsed.targetWord === targetWord) {
           setGameState(parsed.state);
+          // If we already submitted in the past, reflect that in the UI
+          if (parsed.state.hasSubmitted) {
+            setSubmissionStatus('success');
+          }
         } else {
           localStorage.removeItem(storageKey);
         }
@@ -135,14 +140,21 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
 
   // Automated result submission
   useEffect(() => {
-    if (gameState.isGameOver && RESULT_SUBMISSION_URL && !RESULT_SUBMISSION_URL.includes('WEBHOOK_URL_HIER') && submissionStatus === 'idle') {
+    // Only submit if: Game Over, URL exists, NOT placeholder, status is idle, AND NOT already submitted
+    if (gameState.isGameOver && 
+        !gameState.hasSubmitted && 
+        RESULT_SUBMISSION_URL && 
+        !RESULT_SUBMISSION_URL.includes('WEBHOOK_URL_HIER') && 
+        submissionStatus === 'idle') {
+      
       const timer = setTimeout(() => sendResults(), 1500);
       return () => clearTimeout(timer);
     }
-  }, [gameState.isGameOver]);
+  }, [gameState.isGameOver, gameState.hasSubmitted]);
 
   const sendResults = async () => {
     if (submissionStatus === 'success' || submissionStatus === 'sending') return;
+    if (gameState.hasSubmitted) return; // Double check
     if (!RESULT_SUBMISSION_URL || RESULT_SUBMISSION_URL.includes('WEBHOOK_URL_HIER')) return;
 
     setSubmissionStatus('sending');
@@ -194,6 +206,8 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
       });
       if (response.ok) {
         setSubmissionStatus('success');
+        // Persist that we have submitted to prevent duplicates on reload
+        setGameState(prev => ({ ...prev, hasSubmitted: true }));
       } else {
         setSubmissionStatus('error');
       }
@@ -310,13 +324,6 @@ const WordleGame: React.FC<Props> = ({ user, onReset }) => {
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
                   <span>{copied ? 'KOPIERT!' : 'TEILEN'}</span>
-                </button>
-
-                <button 
-                  onClick={() => window.location.reload()}
-                  className="w-full py-4 rounded-xl bg-amber-500 text-black font-bold tracking-widest active:scale-95 transition-all"
-                >
-                  OK
                 </button>
               </div>
             </div>

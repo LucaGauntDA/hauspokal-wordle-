@@ -23,6 +23,7 @@ export interface GameState {
   currentGuess: string;
   isGameOver: boolean;
   isWinner: boolean;
+  hasSubmitted?: boolean;
 }
 
 export interface HouseTheme {
